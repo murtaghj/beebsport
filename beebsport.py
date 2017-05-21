@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 ########################################################################################################################
 # Author: John Murtagh
 # Project: beebsport
@@ -10,6 +11,12 @@ from bs4 import BeautifulSoup
 import argparse
 from tabulate import tabulate
 import sys
+
+# TODO: introduce ability to filter on losses/fails/draws
+# TODO: Get teams with most cards
+# TODO: Filter on league
+# TODO: print full league table
+
 
 parser = argparse.ArgumentParser()
 
@@ -24,6 +31,9 @@ parser.add_argument('-r', action='store_true', dest='match_results',
 
 parser.add_argument('-f', action='store_true', dest='fixtures',
                     help='Get fixtures for specified team')
+
+parser.add_argument('-T', action='store', dest='show_table',
+                    help='Show specified table')
 
 parser.add_argument('-nf', action='store_true', dest='next_fixture',
                     help='Find the next fixture for specified team')
@@ -45,6 +55,12 @@ def main():
         print("Getting match results for {}..".format(results.team))
         res = getResults()
         printFormatResults(res)
+        print "\n"
+
+    if results.show_table:
+        print("Getting table for league ".format(results.show_table))
+        table = getTable(results.show_table)
+        printFormatTable(table)
         print "\n"
 
 
@@ -70,6 +86,21 @@ def printFormatResults(resultList):
     headers = ["Competition", "Home", "Score", "Away", "Date", "Time"]
     for result in resultList:
         res.append([result.comp, result.homeTeam, result.result, result.awayTeam, result.date, result.time])
+    print tabulate(res, headers=headers)
+
+
+def printFormatTable(resultTable):
+    """
+    @Summary: Print results in table format 
+    @param resultList: 
+    @return: 
+    """
+    res = []
+    headers = ["Position", "Team", "P", "W", "D", "L", "F", "A", "GD", "Points"]
+    for result in resultTable:
+        pos = "".join(x for x in result["position"] if x.isdigit())
+        res.append([pos, result["team"], result["played"], result["won"], result["drawn"],
+                    result["lost"], result["for"], result["against"], result["goal-difference"], result["points"]])
     print tabulate(res, headers=headers)
 
 
@@ -120,6 +151,34 @@ def getResults():
             away = m.find('span', {'class': 'team-away teams'}).getText().strip()
             match_lst.append(result(homeTeam=home, awayTeam=away, date=date, time=time, result=score, comp=comp))
     return match_lst
+
+
+def getTable(league):
+    """
+    @Summary: Get the table for a specified league
+    @param league: 
+    @return: (str) League
+    """
+    url = "http://www.bbc.co.uk/sport/football/{}/table".format(league)
+    soup = getResponse(url)
+    team_list = []
+    table = soup.find('table', {'class': 'table-stats'})
+    all_teams = table.find_all('tr', {'class': 'team'})
+    for t in all_teams:
+        stats = {}
+        stats["position"] = t.find('td', {'class': 'position'}).getText().strip()
+        stats["team"] = t.find('td', {'class': 'team-name'}).getText().strip()
+        stats["played"] = t.find('td', {'class': 'played'}).getText().strip()
+        stats["won"] = t.find('td', {'class': 'won'}).getText().strip()
+        stats["drawn"] = t.find('td', {'class': 'drawn'}).getText().strip()
+        stats["lost"] = t.find('td', {'class': 'lost'}).getText().strip()
+        stats["for"] = t.find('td', {'class': 'for'}).getText().strip()
+        stats["against"] = t.find('td', {'class': 'against'}).getText().strip()
+        stats["goal-difference"] = t.find('td', {'class': 'goal-difference'}).getText().strip()
+        stats["points"] = t.find('td', {'class': 'points'}).getText().strip()
+        team_list.append(stats)
+    return team_list
+
 
 
 def getResponse(url):
