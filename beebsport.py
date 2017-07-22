@@ -1,16 +1,16 @@
 #!/usr/bin/env python
 ########################################################################################################################
 # Author: John Murtagh
-# Project: beebsport
-# Description: This project is designed to scrape information from BBC Sports football section
-#
+# Project: footy_results
+# Description: This script will gather data from the sky sports website. It will print out the specified information in
+# the shell
 #
 ########################################################################################################################
 import urllib2
 from bs4 import BeautifulSoup
 import argparse
 from tabulate import tabulate
-import sys
+import re
 
 # TODO: introduce ability to filter on losses/fails/draws
 # TODO: Get teams with most cards
@@ -28,6 +28,9 @@ parser.add_argument('-l', action='store', dest='last_months', default=1,
 
 parser.add_argument('-r', action='store_true', dest='match_results',
                     help='Get results for specified team')
+
+parser.add_argument('-s', action='store', dest='season',
+                    help='Get results for a specified season')
 
 parser.add_argument('-f', action='store_true', dest='fixtures',
                     help='Get fixtures for specified team')
@@ -58,7 +61,7 @@ def main():
         print "\n"
 
     if results.show_table:
-        print("Getting table for league ".format(results.show_table))
+        print("Getting table for league {}".format(results.show_table))
         table = getTable(results.show_table)
         printFormatTable(table)
         print "\n"
@@ -109,76 +112,138 @@ def getFixtures():
     @Summary: Get all fixtures for a specific team.
     :return: 
     """
-    url = 'http://www.bbc.co.uk/sport/football/teams/{}/fixtures'.format(results.team)
+    url = 'http://www.skysports.com/{}-fixtures'.format(results.team)
     soup = getResponse(url)
-    table = soup.find('table', {'class': 'table-stats'})
-    allFixtures = table.find_all('tr', {'class': 'preview'})
+    table = soup.find('div', {'class': 'fixres__body'})
+    allFixtures = table.find_all('div', {'class': 'fixres__item'})
     objs = []
-    for f in allFixtures:
-        comp = f.find('td', {'class': 'match-competition'}).getText().strip()
-        date = f.find('td', {'class': 'match-date'}).getText().strip()
-        time = f.find('td', {'class': 'kickoff'}).getText().strip()
-        home = f.find('span', {'class': 'team-home teams'}).getText().strip()
-        away = f.find('span', {'class': 'team-away teams'}).getText().strip()
+    allDates = getAllFixtureDates(table)
+    allComps = getAllComps(table)
+
+    for f, date, comp in zip(allFixtures, allDates, allComps):
+        time = getMatchTime(f)
+        home = getHomeTeam(f)
+        away = getAwayTeam(f)
         objs.append(fixture(homeTeam=home, awayTeam=away, date=date, time=time, comp=comp))
     return objs
 
 
+def getHomeTeam(data):
+    """
+    @param data:
+    @return: (str) Return home team
+    """
+    d = data.find('span', {'class': 'matches__item-col matches__participant matches__participant--side1'})
+    home = d.find('span', {'class': 'swap-text__target'}).getText().strip()
+    return home
+
+
+def getAwayTeam(data):
+    """
+    :param data:
+    :return:
+    """
+    d = data.find('span', {'class': 'matches__item-col matches__participant matches__participant--side2'})
+    home = d.find('span', {'class': 'swap-text__target'}).getText().strip()
+    return home
+
+
+def getMatchTime(data):
+    """
+    @Summary: get status data
+    :param data:
+    :return:
+    """
+    d = data.find('span', {'class': 'matches__item-col matches__status'})
+    date = d.find('span', {'class': 'matches__date'}).getText().strip()
+    return date
+
+
+def getScores(data):
+    """
+    @Summary: get team scores
+    :param data:
+    :return:
+    """
+    d = data.find('span', {'class': 'matches__teamscores'})
+    scores = d.find_all('span', {'class': 'matches__teamscores-side'})
+    home = scores[0].getText().strip()
+    away = scores[1].getText().strip()
+    return home, away
+
+
+def getAllFixtureDates(data):
+    """
+    @Summary this function will return a list of all fixture dates
+
+    Fixture dates are displayed as header1
+    :return: (list)
+    """
+    return [d.getText() for d in data.find_all('h4', {'class': 'fixres__header2'})]
+
+
+def getAllComps(data):
+    """
+    @Summary: Get all the competitions that will be played
+    :return:
+    """
+    return [d.getText() for d in data.find_all('h5', {'class': 'fixres__header3'})]
+
+
 def getResults():
     """
-    @Summary: Get results for a given specified team
-    :return: 
+    @Summary: Get all fixtures for a specific team.
+    :return:
     """
-    url = 'http://www.bbc.co.uk/sport/football/teams/{}/results'.format(results.team)
+    if results.season:
+        url = 'http://www.skysports.com/{}-results/{}'.format(results.team, results.season)
+    else:
+        url = 'http://www.skysports.com/{}-results/'.format(results.team)
     soup = getResponse(url)
-    table = soup.find('div', {'class': 'fixtures-table team-fixtures full-table-medium'})
+    table = soup.find('div', {'class': 'fixres__body'})
+    allFixtures = table.find_all('div', {'class': 'fixres__item'})
+    objs = []
+    allDates = getAllFixtureDates(table)
+    allComps = getAllComps(table)
 
-    all_stats_tables = table.find_all('table', {'class': 'table-stats'})
-    months_available = len(all_stats_tables)
-    if int(results.last_months) > months_available:
-        print("You have requested result than data is available for! "
-              "Selected months = {}, Available months = {}".format(str(results.last_months), str(months_available)))
-        sys.exit()
-    match_lst = []
-    for table_stat in all_stats_tables[:int(results.last_months)]:
-        report = table_stat.find_all('tr', {'class': 'report'})
-        for m in report:
-            comp = m.find('td', {'class': 'match-competition'}).getText().strip()
-            date = m.find('td', {'class': 'match-date'}).getText().strip()
-            time = m.find('td', {'class': 'time'}).getText().strip()
-            home = m.find('span', {'class': 'team-home teams'}).getText().strip()
-            score = m.find('span', {'class': 'score'}).getText().strip()
-            away = m.find('span', {'class': 'team-away teams'}).getText().strip()
-            match_lst.append(result(homeTeam=home, awayTeam=away, date=date, time=time, result=score, comp=comp))
-    return match_lst
+    for f, date, comp in zip(allFixtures, allDates, allComps):
+        time = getMatchTime(f)
+        home = getHomeTeam(f)
+        away = getAwayTeam(f)
+        homeScore, awayScore = getScores(f)
+        objs.append(result(homeTeam=home, awayTeam=away, date=date, time=time, result="{}-{}".format(homeScore, awayScore), comp=comp))
+    return objs
 
 
-def getTable(league):
+def getTable(league, season=results.season):
     """
     @Summary: Get the table for a specified league
     @param league: 
     @return: (str) League
     """
-    url = "http://www.bbc.co.uk/sport/football/{}/table".format(league)
+    if season:
+        url = "http://www.skysports.com/{0}-table/{1}".format(league, season)
+    else:
+        url = "http://www.skysports.com/{}-table".format(league)
     soup = getResponse(url)
     team_list = []
-    table = soup.find('table', {'class': 'table-stats'})
-    all_teams = table.find_all('tr', {'class': 'team'})
-    for t in all_teams:
+    table = soup.find('table', {'class': 'standing-table__table'})
+    rows = table.find_all('tr', {'class': 'standing-table__row'})
+    for row in rows[1::]:
+        attributes = row.find_all(class_=re.compile('^standing-table__cell$'))
         stats = {}
-        stats["position"] = t.find('td', {'class': 'position'}).getText().strip()
-        stats["team"] = t.find('td', {'class': 'team-name'}).getText().strip()
-        stats["played"] = t.find('td', {'class': 'played'}).getText().strip()
-        stats["won"] = t.find('td', {'class': 'won'}).getText().strip()
-        stats["drawn"] = t.find('td', {'class': 'drawn'}).getText().strip()
-        stats["lost"] = t.find('td', {'class': 'lost'}).getText().strip()
-        stats["for"] = t.find('td', {'class': 'for'}).getText().strip()
-        stats["against"] = t.find('td', {'class': 'against'}).getText().strip()
-        stats["goal-difference"] = t.find('td', {'class': 'goal-difference'}).getText().strip()
-        stats["points"] = t.find('td', {'class': 'points'}).getText().strip()
+        stats["position"] = attributes[0].getText().strip()
+        stats["team"] = attributes[1].getText().strip()
+        stats["played"] = attributes[2].getText().strip()
+        stats["won"] = attributes[3].getText().strip()
+        stats["drawn"] = attributes[4].getText().strip()
+        stats["lost"] = attributes[5].getText().strip()
+        stats["for"] = attributes[6].getText().strip()
+        stats["against"] = attributes[7].getText().strip()
+        stats["goal-difference"] = attributes[8].getText().strip()
+        stats["points"] = attributes[9].getText().strip()
         team_list.append(stats)
     return team_list
-
 
 
 def getResponse(url):
